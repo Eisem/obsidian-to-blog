@@ -1,0 +1,21 @@
+{
+  "name": "obsidian-publish-to-blog",
+  "version": "1.0.0",
+  "description": "Mark notes as publishable and auto-copy them to your blog folder",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "lint": "eslint src/"
+  },
+  "keywords": ["obsidian", "plugin", "publish", "blog"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "obsidian": "latest",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.0.0",
+    "tslib": "^2.0.0"
+  }
+}

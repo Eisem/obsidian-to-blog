@@ -1,0 +1,10 @@
+{
+  "id": "publish-to-blog",
+  "name": "Publish to Blog",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Mark notes as publishable and auto-copy them to your blog folder outside the vault.",
+  "author": "",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}
