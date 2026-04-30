@@ -2,6 +2,7 @@ import { exec } from "child_process";
 import { Notice, Plugin, TFile } from "obsidian";
 import { DEFAULT_SETTINGS, PublishSettingTab, type PluginSettings } from "./settings";
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./dashboard";
+import { MetadataModal } from "./metadata-modal";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -67,6 +68,19 @@ export default class PublishToBlogPlugin extends Plugin {
           this.deployTimer = null;
         }
         this.runDeploy();
+      },
+    });
+
+    this.addCommand({
+      id: "edit-metadata",
+      name: "Edit post metadata",
+      editorCheckCallback: (checking, _editor, ctx) => {
+        const file = ctx.file;
+        if (!(file instanceof TFile) || file.extension !== "md") return false;
+        if (!checking) {
+          new MetadataModal(this.app, this, file).open();
+        }
+        return true;
       },
     });
 
@@ -156,7 +170,8 @@ export default class PublishToBlogPlugin extends Plugin {
     }
 
     try {
-      const content = await this.app.vault.read(file);
+      let content = await this.app.vault.read(file);
+      content = ensureTitle(content, file.basename);
       const targetPath = path.join(
         blogPath.replace(/[/\\]$/, ""),
         file.path
@@ -273,4 +288,19 @@ export default class PublishToBlogPlugin extends Plugin {
     this.syncTimers.clear();
     if (this.deployTimer) clearTimeout(this.deployTimer);
   }
+}
+
+function ensureTitle(content: string, fallbackTitle: string): string {
+  if (/^---[\s\S]*?\ntitle:\s*.+/m.test(content)) return content;
+
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (fmMatch) {
+    return content.replace(
+      /^---\r?\n/,
+      `---\ntitle: "${fallbackTitle.replace(/"/g, '\\"')}"\n`
+    );
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  return `---\ntitle: "${fallbackTitle.replace(/"/g, '\\"')}"\ndate: ${date}\n---\n\n${content}`;
 }

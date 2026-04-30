@@ -177,3 +177,30 @@
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+
+/* Metadata Modal */
+
+.metadata-modal .setting-item {
+  border-top: none;
+  padding: 12px 0;
+}
+
+.metadata-modal .setting-item-info {
+  min-width: 80px;
+}
+
+.metadata-modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.metadata-modal-buttons button {
+  padding: 6px 18px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
