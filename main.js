@@ -604,6 +604,7 @@ var PublishToBlogPlugin = class extends import_obsidian6.Plugin {
     this.syncTimers = /* @__PURE__ */ new Map();
     this.deployTimer = null;
     this.isDeploying = false;
+    this.publishedPaths = /* @__PURE__ */ new Set();
   }
   async onload() {
     await this.loadSettings();
@@ -695,6 +696,14 @@ var PublishToBlogPlugin = class extends import_obsidian6.Plugin {
     );
     this.registerEvent(
       this.app.metadataCache.on("changed", (file) => {
+        const wasPublished = this.publishedPaths.has(file.path);
+        const isNowPublished = this.isPublished(file);
+        if (wasPublished && !isNowPublished) {
+          this.publishedPaths.delete(file.path);
+          this.deleteFromBlog(file);
+        } else if (isNowPublished) {
+          this.publishedPaths.add(file.path);
+        }
         this.debouncedAutoSync(file);
       })
     );
@@ -725,10 +734,14 @@ var PublishToBlogPlugin = class extends import_obsidian6.Plugin {
       frontmatter["publish"] = next;
     });
     new import_obsidian6.Notice(`Marked as ${next ? "publish" : "private"}: ${file.basename}`);
-    if (next && this.settings.autoSync) {
-      this.syncSingleFile(file);
+    if (next) {
+      this.publishedPaths.add(file.path);
+      if (this.settings.autoSync) {
+        this.syncSingleFile(file);
+      }
     }
     if (!next) {
+      this.publishedPaths.delete(file.path);
       this.deleteFromBlog(file);
     }
   }

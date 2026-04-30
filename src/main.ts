@@ -13,6 +13,7 @@ export default class PublishToBlogPlugin extends Plugin {
   private syncTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   deployTimer: ReturnType<typeof setTimeout> | null = null;
   private isDeploying = false;
+  private publishedPaths: Set<string> = new Set();
 
   async onload() {
     await this.loadSettings();
@@ -115,6 +116,16 @@ export default class PublishToBlogPlugin extends Plugin {
 
     this.registerEvent(
       this.app.metadataCache.on("changed", (file) => {
+        const wasPublished = this.publishedPaths.has(file.path);
+        const isNowPublished = this.isPublished(file);
+
+        if (wasPublished && !isNowPublished) {
+          this.publishedPaths.delete(file.path);
+          this.deleteFromBlog(file);
+        } else if (isNowPublished) {
+          this.publishedPaths.add(file.path);
+        }
+
         this.debouncedAutoSync(file);
       })
     );
@@ -149,10 +160,14 @@ export default class PublishToBlogPlugin extends Plugin {
       frontmatter["publish"] = next;
     });
     new Notice(`Marked as ${next ? "publish" : "private"}: ${file.basename}`);
-    if (next && this.settings.autoSync) {
-      this.syncSingleFile(file);
+    if (next) {
+      this.publishedPaths.add(file.path);
+      if (this.settings.autoSync) {
+        this.syncSingleFile(file);
+      }
     }
     if (!next) {
+      this.publishedPaths.delete(file.path);
       this.deleteFromBlog(file);
     }
   }
