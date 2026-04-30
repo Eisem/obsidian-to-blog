@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, PublishSettingTab, type PluginSettings } from "./sett
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./dashboard";
 import { MetadataModal } from "./metadata-modal";
 import { PublishModal } from "./publish-modal";
+import { getFilesWithTag } from "./hexo-utils";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -310,6 +311,39 @@ export default class PublishToBlogPlugin extends Plugin {
       const msg = e instanceof Error ? e.message : String(e);
       new Notice(`Failed to remove from blog: ${file.basename}. ${msg}`);
     }
+  }
+
+  async removeTagFromAllPosts(tag: string) {
+    const blogPath = this.settings.blogFolderPath.trim();
+    if (!blogPath) return;
+
+    const posts = getFilesWithTag(blogPath, tag);
+    if (posts.length === 0) {
+      new Notice(`No posts found with tag "${tag}".`);
+      return;
+    }
+
+    let removed = 0;
+
+    for (const post of posts) {
+      const vaultFile = this.app.vault.getAbstractFileByPath(post.filePath);
+      if (vaultFile instanceof TFile) {
+        await this.app.fileManager.processFrontMatter(vaultFile, (fm) => {
+          if (fm.tags) {
+            if (Array.isArray(fm.tags)) {
+              fm.tags = fm.tags.filter((t: string) => t !== tag);
+              if (fm.tags.length === 0) delete fm.tags;
+            } else if (typeof fm.tags === "string" && fm.tags === tag) {
+              delete fm.tags;
+            }
+          }
+        });
+        await this.syncSingleFile(vaultFile);
+        removed++;
+      }
+    }
+
+    new Notice(`Removed tag "${tag}" from ${removed} posts.`);
   }
 
   async activateDashboard() {

@@ -129,7 +129,7 @@ export class DashboardView extends ItemView {
         text: "No tags.",
       });
     } else {
-      this.renderCategoryTagList(tagSection, tags, "tag");
+      this.renderTagList(tagSection, tags, blogPath);
     }
   }
 
@@ -162,6 +162,34 @@ export class DashboardView extends ItemView {
       const chip = container.createEl("span", { cls: "blog-chip" });
       const icon = type === "category" ? "📂" : "🏷";
       chip.setText(`${icon} ${item.name} (${item.count})`);
+    }
+  }
+
+  private renderTagList(
+    parent: HTMLElement,
+    items: TagInfo[],
+    blogPath: string
+  ) {
+    const container = parent.createEl("div", { cls: "blog-chips" });
+    for (const item of items) {
+      const chip = container.createEl("span", { cls: "blog-chip blog-tag-chip" });
+      chip.createEl("span", { cls: "blog-tag-name", text: `🏷 ${item.name}` });
+      chip.createEl("span", { cls: "blog-tag-count", text: String(item.count) });
+
+      const delBtn = chip.createEl("span", { cls: "blog-tag-delete" });
+      delBtn.setText("×");
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+
+        const confirmed = confirm(
+          `Remove tag "${item.name}" from ${item.count} posts?`
+        );
+        if (!confirmed) return;
+
+        delBtn.setText("⏳");
+        await this.plugin.removeTagFromAllPosts(item.name);
+        this.render();
+      });
     }
   }
 }

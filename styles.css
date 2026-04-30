@@ -178,6 +178,39 @@
   color: var(--text-normal);
 }
 
+.blog-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.blog-tag-name {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.blog-tag-count {
+  font-size: 10px;
+  color: var(--text-faint);
+  background: var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 0 5px;
+  line-height: 16px;
+}
+
+.blog-tag-delete {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.blog-tag-delete:hover {
+  color: var(--text-error);
+}
+
 /* Metadata Modal */
 
 .metadata-modal .setting-item {

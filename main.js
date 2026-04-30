@@ -201,6 +201,9 @@ function getTagList(blogFolderPath) {
   }
   return [...map.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
 }
+function getFilesWithTag(blogFolderPath, tag) {
+  return scanPosts(blogFolderPath).filter((p) => p.tags.includes(tag));
+}
 
 // src/dashboard.ts
 var fs2 = __toESM(require("fs"));
@@ -297,7 +300,7 @@ var DashboardView = class extends import_obsidian3.ItemView {
         text: "No tags."
       });
     } else {
-      this.renderCategoryTagList(tagSection, tags, "tag");
+      this.renderTagList(tagSection, tags, blogPath);
     }
   }
   createStatCard(parent, label, value) {
@@ -315,6 +318,27 @@ var DashboardView = class extends import_obsidian3.ItemView {
       const chip = container.createEl("span", { cls: "blog-chip" });
       const icon = type === "category" ? "\u{1F4C2}" : "\u{1F3F7}";
       chip.setText(`${icon} ${item.name} (${item.count})`);
+    }
+  }
+  renderTagList(parent, items, blogPath) {
+    const container = parent.createEl("div", { cls: "blog-chips" });
+    for (const item of items) {
+      const chip = container.createEl("span", { cls: "blog-chip blog-tag-chip" });
+      chip.createEl("span", { cls: "blog-tag-name", text: `\u{1F3F7} ${item.name}` });
+      chip.createEl("span", { cls: "blog-tag-count", text: String(item.count) });
+      const delBtn = chip.createEl("span", { cls: "blog-tag-delete" });
+      delBtn.setText("\xD7");
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const confirmed = confirm(
+          `Remove tag "${item.name}" from ${item.count} posts?`
+        );
+        if (!confirmed)
+          return;
+        delBtn.setText("\u23F3");
+        await this.plugin.removeTagFromAllPosts(item.name);
+        this.render();
+      });
     }
   }
 };
@@ -848,6 +872,36 @@ var PublishToBlogPlugin = class extends import_obsidian6.Plugin {
       const msg = e instanceof Error ? e.message : String(e);
       new import_obsidian6.Notice(`Failed to remove from blog: ${file.basename}. ${msg}`);
     }
+  }
+  async removeTagFromAllPosts(tag) {
+    const blogPath = this.settings.blogFolderPath.trim();
+    if (!blogPath)
+      return;
+    const posts = getFilesWithTag(blogPath, tag);
+    if (posts.length === 0) {
+      new import_obsidian6.Notice(`No posts found with tag "${tag}".`);
+      return;
+    }
+    let removed = 0;
+    for (const post of posts) {
+      const vaultFile = this.app.vault.getAbstractFileByPath(post.filePath);
+      if (vaultFile instanceof import_obsidian6.TFile) {
+        await this.app.fileManager.processFrontMatter(vaultFile, (fm) => {
+          if (fm.tags) {
+            if (Array.isArray(fm.tags)) {
+              fm.tags = fm.tags.filter((t) => t !== tag);
+              if (fm.tags.length === 0)
+                delete fm.tags;
+            } else if (typeof fm.tags === "string" && fm.tags === tag) {
+              delete fm.tags;
+            }
+          }
+        });
+        await this.syncSingleFile(vaultFile);
+        removed++;
+      }
+    }
+    new import_obsidian6.Notice(`Removed tag "${tag}" from ${removed} posts.`);
   }
   async activateDashboard() {
     const { workspace } = this.app;

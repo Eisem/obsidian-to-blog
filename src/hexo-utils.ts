@@ -136,3 +136,10 @@ export function getTagList(blogFolderPath: string): TagInfo[] {
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
 }
+
+export function getFilesWithTag(
+  blogFolderPath: string,
+  tag: string
+): HexoPostInfo[] {
+  return scanPosts(blogFolderPath).filter((p) => p.tags.includes(tag));
+}
