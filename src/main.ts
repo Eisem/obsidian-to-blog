@@ -1,18 +1,30 @@
 import { exec } from "child_process";
 import { Notice, Plugin, TFile } from "obsidian";
 import { DEFAULT_SETTINGS, PublishSettingTab, type PluginSettings } from "./settings";
+import { DashboardView, VIEW_TYPE_DASHBOARD } from "./dashboard";
 import * as fs from "fs";
 import * as path from "path";
 
 export default class PublishToBlogPlugin extends Plugin {
   settings: PluginSettings;
   private syncTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  private deployTimer: ReturnType<typeof setTimeout> | null = null;
+  deployTimer: ReturnType<typeof setTimeout> | null = null;
   private isDeploying = false;
 
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new PublishSettingTab(this.app, this));
+
+    this.registerView(
+      VIEW_TYPE_DASHBOARD,
+      (leaf) => new DashboardView(leaf, this)
+    );
+
+    this.addCommand({
+      id: "open-dashboard",
+      name: "Open blog dashboard",
+      callback: () => this.activateDashboard(),
+    });
 
     this.addCommand({
       id: "toggle-publish",
@@ -60,6 +72,10 @@ export default class PublishToBlogPlugin extends Plugin {
 
     this.addRibbonIcon("send", "Sync all published notes to blog", () => {
       this.syncAllPublished();
+    });
+
+    this.addRibbonIcon("bar-chart-2", "Open blog dashboard", () => {
+      this.activateDashboard();
     });
 
     this.registerEvent(
@@ -194,7 +210,7 @@ export default class PublishToBlogPlugin extends Plugin {
     }, this.settings.bufferMinutes * 60 * 1000);
   }
 
-  private runDeploy() {
+  runDeploy() {
     if (this.isDeploying) {
       console.log("PublishToBlog: Deploy already in progress, skipping.");
       return;
@@ -227,6 +243,29 @@ export default class PublishToBlogPlugin extends Plugin {
         if (stdout) console.log("PublishToBlog deploy stdout:", stdout);
       }
     });
+  }
+
+  cancelDeployTimer() {
+    if (this.deployTimer) {
+      clearTimeout(this.deployTimer);
+      this.deployTimer = null;
+    }
+  }
+
+  async activateDashboard() {
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_DASHBOARD)[0];
+    if (!leaf) {
+      const rightLeaf = workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({
+          type: VIEW_TYPE_DASHBOARD,
+          active: true,
+        });
+        leaf = rightLeaf;
+      }
+    }
+    if (leaf) workspace.revealLeaf(leaf);
   }
 
   onunload() {

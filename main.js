@@ -38,7 +38,7 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_child_process = require("child_process");
-var import_obsidian2 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
@@ -99,10 +99,230 @@ var PublishSettingTab = class extends import_obsidian.PluginSettingTab {
   }
 };
 
-// src/main.ts
+// src/dashboard.ts
+var import_obsidian3 = require("obsidian");
+
+// src/hexo-utils.ts
+var import_obsidian2 = require("obsidian");
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
-var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
+function parseFrontmatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match)
+    return null;
+  try {
+    return (0, import_obsidian2.parseYaml)(match[1]) || {};
+  } catch (e) {
+    return null;
+  }
+}
+function normalizeStringArray(value) {
+  if (!value)
+    return [];
+  if (Array.isArray(value))
+    return value.map((v) => String(v));
+  if (typeof value === "string")
+    return [value];
+  if (typeof value === "object" && value !== null) {
+    if (Array.isArray(value.map)) {
+      return value.map.map((v) => String(v));
+    }
+    return [];
+  }
+  return [];
+}
+function scanPosts(blogFolderPath) {
+  const postsDir = path.resolve(blogFolderPath);
+  if (!fs.existsSync(postsDir))
+    return [];
+  const posts = [];
+  function walk(dir) {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.name.endsWith(".md")) {
+        try {
+          const content = fs.readFileSync(fullPath, "utf-8");
+          const fm = parseFrontmatter(content);
+          if (fm) {
+            posts.push({
+              title: fm.title || entry.name.replace(".md", ""),
+              date: fm.date || "",
+              categories: normalizeStringArray(fm.categories),
+              tags: normalizeStringArray(fm.tags),
+              filePath: path.relative(blogFolderPath, fullPath).replace(/\\/g, "/"),
+              fileName: entry.name
+            });
+          }
+        } catch (e) {
+        }
+      }
+    }
+  }
+  walk(postsDir);
+  posts.sort((a, b) => b.date.localeCompare(a.date));
+  return posts;
+}
+function getBlogStats(blogFolderPath) {
+  const posts = scanPosts(blogFolderPath);
+  const categories = /* @__PURE__ */ new Set();
+  const tags = /* @__PURE__ */ new Set();
+  for (const post of posts) {
+    for (const cat of post.categories)
+      categories.add(cat);
+    for (const tag of post.tags)
+      tags.add(tag);
+  }
+  return {
+    totalPosts: posts.length,
+    totalCategories: categories.size,
+    totalTags: tags.size
+  };
+}
+function getCategoryList(blogFolderPath) {
+  const posts = scanPosts(blogFolderPath);
+  const map = /* @__PURE__ */ new Map();
+  for (const post of posts) {
+    for (const cat of post.categories) {
+      map.set(cat, (map.get(cat) || 0) + 1);
+    }
+  }
+  return [...map.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+}
+function getTagList(blogFolderPath) {
+  const posts = scanPosts(blogFolderPath);
+  const map = /* @__PURE__ */ new Map();
+  for (const post of posts) {
+    for (const tag of post.tags) {
+      map.set(tag, (map.get(tag) || 0) + 1);
+    }
+  }
+  return [...map.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+}
+
+// src/dashboard.ts
+var fs2 = __toESM(require("fs"));
+var VIEW_TYPE_DASHBOARD = "obsidian-to-blog-dashboard";
+var DashboardView = class extends import_obsidian3.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+  getViewType() {
+    return VIEW_TYPE_DASHBOARD;
+  }
+  getDisplayText() {
+    return "Blog Dashboard";
+  }
+  getIcon() {
+    return "bar-chart-2";
+  }
+  async onOpen() {
+    this.render();
+  }
+  async onClose() {
+  }
+  render() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass("blog-dashboard");
+    const blogPath = this.plugin.settings.blogFolderPath.trim();
+    if (!blogPath || !fs2.existsSync(blogPath)) {
+      container.createEl("div", {
+        cls: "blog-dashboard-empty",
+        text: "Blog folder path not configured or does not exist.\nGo to plugin settings to configure."
+      });
+      return;
+    }
+    const stats = getBlogStats(blogPath);
+    const recentPosts = scanPosts(blogPath).slice(0, 10);
+    const categories = getCategoryList(blogPath);
+    const tags = getTagList(blogPath);
+    const header = container.createEl("div", { cls: "blog-dashboard-header" });
+    header.createEl("h2", { text: "Blog Dashboard" });
+    const refreshBtn = header.createEl("button", {
+      cls: "blog-dashboard-refresh",
+      text: "Refresh"
+    });
+    refreshBtn.addEventListener("click", () => this.render());
+    const statsRow = container.createEl("div", { cls: "blog-stats-row" });
+    this.createStatCard(statsRow, "Posts", String(stats.totalPosts));
+    this.createStatCard(statsRow, "Categories", String(stats.totalCategories));
+    this.createStatCard(statsRow, "Tags", String(stats.totalTags));
+    const actions = container.createEl("div", { cls: "blog-actions" });
+    actions.createEl("h4", { text: "Quick Actions" });
+    const actionsRow = actions.createEl("div", { cls: "blog-actions-row" });
+    this.createActionButton(actionsRow, "Generate & Deploy", () => {
+      this.plugin.cancelDeployTimer();
+      this.plugin.runDeploy();
+    });
+    this.createActionButton(actionsRow, "Sync All", () => {
+      this.plugin.syncAllPublished();
+    });
+    const recentSection = container.createEl("div", {
+      cls: "blog-section"
+    });
+    recentSection.createEl("h4", { text: "Recent Posts" });
+    if (recentPosts.length === 0) {
+      recentSection.createEl("div", {
+        cls: "blog-empty-hint",
+        text: "No posts found."
+      });
+    } else {
+      const list = recentSection.createEl("div", { cls: "blog-post-list" });
+      for (const post of recentPosts) {
+        const item = list.createEl("div", { cls: "blog-post-item" });
+        const meta = item.createEl("span", { cls: "blog-post-date" });
+        meta.setText(post.date ? post.date.slice(0, 10) : "");
+        item.createEl("span", { cls: "blog-post-title", text: post.title });
+      }
+    }
+    const catSection = container.createEl("div", { cls: "blog-section" });
+    catSection.createEl("h4", { text: "Categories" });
+    if (categories.length === 0) {
+      catSection.createEl("div", {
+        cls: "blog-empty-hint",
+        text: "No categories."
+      });
+    } else {
+      this.renderCategoryTagList(catSection, categories, "category");
+    }
+    const tagSection = container.createEl("div", { cls: "blog-section" });
+    tagSection.createEl("h4", { text: "Tags" });
+    if (tags.length === 0) {
+      tagSection.createEl("div", {
+        cls: "blog-empty-hint",
+        text: "No tags."
+      });
+    } else {
+      this.renderCategoryTagList(tagSection, tags, "tag");
+    }
+  }
+  createStatCard(parent, label, value) {
+    const card = parent.createEl("div", { cls: "blog-stat-card" });
+    card.createEl("div", { cls: "blog-stat-value", text: value });
+    card.createEl("div", { cls: "blog-stat-label", text: label });
+  }
+  createActionButton(parent, text, onClick) {
+    const btn = parent.createEl("button", { cls: "blog-action-btn", text });
+    btn.addEventListener("click", onClick);
+  }
+  renderCategoryTagList(parent, items, type) {
+    const container = parent.createEl("div", { cls: "blog-chips" });
+    for (const item of items) {
+      const chip = container.createEl("span", { cls: "blog-chip" });
+      const icon = type === "category" ? "\u{1F4C2}" : "\u{1F3F7}";
+      chip.setText(`${icon} ${item.name} (${item.count})`);
+    }
+  }
+};
+
+// src/main.ts
+var fs3 = __toESM(require("fs"));
+var path2 = __toESM(require("path"));
+var PublishToBlogPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
     this.syncTimers = /* @__PURE__ */ new Map();
@@ -112,12 +332,21 @@ var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new PublishSettingTab(this.app, this));
+    this.registerView(
+      VIEW_TYPE_DASHBOARD,
+      (leaf) => new DashboardView(leaf, this)
+    );
+    this.addCommand({
+      id: "open-dashboard",
+      name: "Open blog dashboard",
+      callback: () => this.activateDashboard()
+    });
     this.addCommand({
       id: "toggle-publish",
       name: "Toggle publish for current note",
       editorCheckCallback: (checking, _editor, ctx) => {
         const file = ctx.file;
-        if (!(file instanceof import_obsidian2.TFile) || file.extension !== "md")
+        if (!(file instanceof import_obsidian4.TFile) || file.extension !== "md")
           return false;
         if (!checking) {
           this.togglePublish(file);
@@ -135,10 +364,10 @@ var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
       name: "Sync current note to blog",
       callback: () => {
         const file = this.app.workspace.getActiveFile();
-        if (file instanceof import_obsidian2.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian4.TFile && file.extension === "md") {
           this.syncSingleFile(file);
         } else {
-          new import_obsidian2.Notice("No active markdown file to sync.");
+          new import_obsidian4.Notice("No active markdown file to sync.");
         }
       }
     });
@@ -156,9 +385,12 @@ var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
     this.addRibbonIcon("send", "Sync all published notes to blog", () => {
       this.syncAllPublished();
     });
+    this.addRibbonIcon("bar-chart-2", "Open blog dashboard", () => {
+      this.activateDashboard();
+    });
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof import_obsidian2.TFile) || file.extension !== "md")
+        if (!(file instanceof import_obsidian4.TFile) || file.extension !== "md")
           return;
         const published = this.isPublished(file);
         menu.addItem((item) => {
@@ -173,7 +405,7 @@ var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
-        if (file instanceof import_obsidian2.TFile) {
+        if (file instanceof import_obsidian4.TFile) {
           this.debouncedAutoSync(file);
         }
       })
@@ -197,7 +429,7 @@ var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
     await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
       frontmatter["publish"] = next;
     });
-    new import_obsidian2.Notice(`Marked as ${next ? "publish" : "private"}: ${file.basename}`);
+    new import_obsidian4.Notice(`Marked as ${next ? "publish" : "private"}: ${file.basename}`);
     if (next && this.settings.autoSync) {
       this.syncSingleFile(file);
     }
@@ -222,33 +454,33 @@ var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
   async syncSingleFile(file) {
     const blogPath = this.settings.blogFolderPath.trim();
     if (!blogPath) {
-      new import_obsidian2.Notice("Blog folder path is not configured. Check plugin settings.");
+      new import_obsidian4.Notice("Blog folder path is not configured. Check plugin settings.");
       return;
     }
     try {
       const content = await this.app.vault.read(file);
-      const targetPath = path.join(
+      const targetPath = path2.join(
         blogPath.replace(/[/\\]$/, ""),
         file.path
       );
-      const targetDir = path.dirname(targetPath);
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
+      const targetDir = path2.dirname(targetPath);
+      if (!fs3.existsSync(targetDir)) {
+        fs3.mkdirSync(targetDir, { recursive: true });
       }
-      fs.writeFileSync(targetPath, content, "utf-8");
-      new import_obsidian2.Notice(`Synced to blog: ${file.path}`);
+      fs3.writeFileSync(targetPath, content, "utf-8");
+      new import_obsidian4.Notice(`Synced to blog: ${file.path}`);
       if (this.settings.autoDeploy)
         this.resetDeployTimer();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      new import_obsidian2.Notice(`Sync failed: ${file.basename}. ${msg}`);
+      new import_obsidian4.Notice(`Sync failed: ${file.basename}. ${msg}`);
       console.error("PublishToBlog sync error:", e);
     }
   }
   async syncAllPublished() {
     const blogPath = this.settings.blogFolderPath.trim();
     if (!blogPath) {
-      new import_obsidian2.Notice("Blog folder path is not configured. Check plugin settings.");
+      new import_obsidian4.Notice("Blog folder path is not configured. Check plugin settings.");
       return;
     }
     const files = this.app.vault.getMarkdownFiles();
@@ -264,7 +496,7 @@ var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
         }
       }
     }
-    new import_obsidian2.Notice(`Sync complete: ${synced} synced${errors > 0 ? `, ${errors} errors` : ""}`);
+    new import_obsidian4.Notice(`Sync complete: ${synced} synced${errors > 0 ? `, ${errors} errors` : ""}`);
   }
   resetDeployTimer() {
     if (this.deployTimer)
@@ -282,27 +514,49 @@ var PublishToBlogPlugin = class extends import_obsidian2.Plugin {
     const hexoRoot = this.settings.hexoRootPath.trim();
     const cmd = this.settings.deployCommand.trim();
     if (!hexoRoot || !cmd) {
-      new import_obsidian2.Notice("Hexo root path or deploy command not configured. Check plugin settings.");
+      new import_obsidian4.Notice("Hexo root path or deploy command not configured. Check plugin settings.");
       return;
     }
-    if (!fs.existsSync(hexoRoot)) {
-      new import_obsidian2.Notice(`Hexo root path does not exist: ${hexoRoot}`);
+    if (!fs3.existsSync(hexoRoot)) {
+      new import_obsidian4.Notice(`Hexo root path does not exist: ${hexoRoot}`);
       return;
     }
     this.isDeploying = true;
-    new import_obsidian2.Notice(`Deploy started: ${cmd}`);
+    new import_obsidian4.Notice(`Deploy started: ${cmd}`);
     (0, import_child_process.exec)(cmd, { cwd: hexoRoot }, (error, stdout, stderr) => {
       this.isDeploying = false;
       if (error) {
-        new import_obsidian2.Notice(`Deploy failed: ${error.message}`);
+        new import_obsidian4.Notice(`Deploy failed: ${error.message}`);
         console.error("PublishToBlog deploy error stdout:", stdout);
         console.error("PublishToBlog deploy error stderr:", stderr);
       } else {
-        new import_obsidian2.Notice("Deploy completed successfully!");
+        new import_obsidian4.Notice("Deploy completed successfully!");
         if (stdout)
           console.log("PublishToBlog deploy stdout:", stdout);
       }
     });
+  }
+  cancelDeployTimer() {
+    if (this.deployTimer) {
+      clearTimeout(this.deployTimer);
+      this.deployTimer = null;
+    }
+  }
+  async activateDashboard() {
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_DASHBOARD)[0];
+    if (!leaf) {
+      const rightLeaf = workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({
+          type: VIEW_TYPE_DASHBOARD,
+          active: true
+        });
+        leaf = rightLeaf;
+      }
+    }
+    if (leaf)
+      workspace.revealLeaf(leaf);
   }
   onunload() {
     this.syncTimers.forEach((t) => clearTimeout(t));
