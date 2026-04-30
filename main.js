@@ -38,7 +38,7 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_child_process = require("child_process");
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
@@ -391,10 +391,190 @@ function splitTrim(input) {
   return input.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
 }
 
+// src/publish-modal.ts
+var import_obsidian5 = require("obsidian");
+var PublishModal = class extends import_obsidian5.Modal {
+  constructor(app, plugin, file) {
+    super(app);
+    this.plugin = plugin;
+    this.file = file;
+    const cache = app.metadataCache.getFileCache(file);
+    this.obsidianTags = extractObsidianTags(cache);
+    this.recentBlogTags = this.loadRecentBlogTags();
+  }
+  onOpen() {
+    var _a, _b;
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("publish-modal");
+    contentEl.createEl("h2", { text: "Publish Post" });
+    const cache = this.app.metadataCache.getFileCache(this.file);
+    const titleFromFm = ((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.title) || "";
+    let titleValue = titleFromFm || this.file.basename;
+    const existingBlogTags = normalizeArray2(
+      (_b = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _b.tags
+    );
+    const mergedTags = dedupe([...this.obsidianTags, ...existingBlogTags]);
+    let tagsValue = mergedTags.join(", ");
+    new import_obsidian5.Setting(contentEl).setName("Title").addText((text) => {
+      text.setPlaceholder("Post title").setValue(titleValue).onChange((v) => titleValue = v);
+      text.inputEl.style.width = "100%";
+    });
+    new import_obsidian5.Setting(contentEl).setName("Tags").setDesc("Comma-separated").addText((text) => {
+      text.setPlaceholder("javascript, tutorial").setValue(tagsValue).onChange((v) => {
+        tagsValue = v;
+        this.refreshChips(contentEl, tagsValue);
+      });
+      text.inputEl.style.width = "100%";
+      contentEl._tagInput = text.inputEl;
+    });
+    if (this.obsidianTags.length > 0) {
+      const fromNote = contentEl.createEl("div", {
+        cls: "publish-modal-section"
+      });
+      fromNote.createEl("div", {
+        cls: "publish-modal-section-label",
+        text: "Tags from this note"
+      });
+      const chips = fromNote.createEl("div", {
+        cls: "publish-modal-chips"
+      });
+      for (const tag of this.obsidianTags) {
+        this.createTagChip(chips, tag, "obsidian", () => {
+          tagsValue = removeTagFromText(tagsValue, tag);
+          const input = contentEl._tagInput;
+          if (input) {
+            input.value = tagsValue;
+            input.dispatchEvent(new Event("input"));
+          }
+        });
+      }
+    }
+    if (this.recentBlogTags.length > 0) {
+      const fromBlog = contentEl.createEl("div", {
+        cls: "publish-modal-section"
+      });
+      fromBlog.createEl("div", {
+        cls: "publish-modal-section-label",
+        text: "Recently used blog tags"
+      });
+      const chips = fromBlog.createEl("div", {
+        cls: "publish-modal-chips"
+      });
+      for (const tag of this.recentBlogTags.slice(0, 30)) {
+        this.createTagChip(chips, tag, "recent", () => {
+          tagsValue = toggleTagInText(tagsValue, tag);
+          const input = contentEl._tagInput;
+          if (input) {
+            input.value = tagsValue;
+            input.dispatchEvent(new Event("input"));
+          }
+        });
+      }
+    }
+    const buttons = contentEl.createEl("div", {
+      cls: "publish-modal-buttons"
+    });
+    const cancelBtn = buttons.createEl("button", { text: "Cancel" });
+    cancelBtn.addEventListener("click", () => this.close());
+    const publishBtn = buttons.createEl("button", {
+      cls: "mod-cta",
+      text: "Publish"
+    });
+    publishBtn.addEventListener("click", async () => {
+      publishBtn.disabled = true;
+      publishBtn.setText("Publishing...");
+      const finalTags = splitTrim2(tagsValue);
+      await this.app.fileManager.processFrontMatter(this.file, (fm) => {
+        fm["title"] = titleValue.trim() || void 0;
+        fm["tags"] = finalTags.length > 0 ? finalTags : void 0;
+        fm["publish"] = true;
+      });
+      this.plugin.syncSingleFile(this.file);
+      this.close();
+    });
+  }
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+  loadRecentBlogTags() {
+    const blogPath = this.plugin.settings.blogFolderPath.trim();
+    if (!blogPath)
+      return [];
+    return getTagList(blogPath).map((item) => item.name).filter(Boolean);
+  }
+  createTagChip(parent, tag, type, onClick) {
+    const chip = parent.createEl("span", { cls: "publish-modal-chip" });
+    chip.setText(tag);
+    if (type === "obsidian")
+      chip.addClass("is-obsidian");
+    chip.addEventListener("click", onClick);
+  }
+  refreshChips(container, currentTags) {
+    const currentSet = new Set(splitTrim2(currentTags));
+    const chips = container.findAll(
+      ".publish-modal-chip:not(.is-obsidian)"
+    );
+    for (const chip of chips) {
+      if (currentSet.has(chip.getText())) {
+        chip.addClass("is-selected");
+      } else {
+        chip.removeClass("is-selected");
+      }
+    }
+  }
+};
+function extractObsidianTags(cache) {
+  var _a;
+  const tags = /* @__PURE__ */ new Set();
+  if ((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.tags) {
+    for (const t of normalizeArray2(cache.frontmatter.tags)) {
+      tags.add(t.startsWith("#") ? t.slice(1) : t);
+    }
+  }
+  if (cache == null ? void 0 : cache.tags) {
+    for (const item of cache.tags) {
+      const raw = item.tag || "";
+      if (raw.startsWith("#")) {
+        tags.add(raw.slice(1));
+      }
+    }
+  }
+  return [...tags];
+}
+function normalizeArray2(value) {
+  if (!value)
+    return [];
+  if (Array.isArray(value))
+    return value.map((v) => String(v));
+  if (typeof value === "string")
+    return [value];
+  return [];
+}
+function dedupe(arr) {
+  return [...new Set(arr.filter(Boolean))];
+}
+function splitTrim2(input) {
+  return input.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+}
+function removeTagFromText(text, tag) {
+  const current = splitTrim2(text);
+  const filtered = current.filter((t) => t !== tag);
+  return filtered.join(", ");
+}
+function toggleTagInText(text, tag) {
+  const current = splitTrim2(text);
+  if (current.includes(tag)) {
+    return current.filter((t) => t !== tag).join(", ");
+  }
+  return [...current, tag].join(", ");
+}
+
 // src/main.ts
 var fs3 = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
-var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
+var PublishToBlogPlugin = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
     this.syncTimers = /* @__PURE__ */ new Map();
@@ -418,7 +598,7 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
       name: "Toggle publish for current note",
       editorCheckCallback: (checking, _editor, ctx) => {
         const file = ctx.file;
-        if (!(file instanceof import_obsidian5.TFile) || file.extension !== "md")
+        if (!(file instanceof import_obsidian6.TFile) || file.extension !== "md")
           return false;
         if (!checking) {
           this.togglePublish(file);
@@ -436,10 +616,10 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
       name: "Sync current note to blog",
       callback: () => {
         const file = this.app.workspace.getActiveFile();
-        if (file instanceof import_obsidian5.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian6.TFile && file.extension === "md") {
           this.syncSingleFile(file);
         } else {
-          new import_obsidian5.Notice("No active markdown file to sync.");
+          new import_obsidian6.Notice("No active markdown file to sync.");
         }
       }
     });
@@ -459,7 +639,7 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
       name: "Edit post metadata",
       editorCheckCallback: (checking, _editor, ctx) => {
         const file = ctx.file;
-        if (!(file instanceof import_obsidian5.TFile) || file.extension !== "md")
+        if (!(file instanceof import_obsidian6.TFile) || file.extension !== "md")
           return false;
         if (!checking) {
           new MetadataModal(this.app, this, file).open();
@@ -475,11 +655,17 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
     });
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof import_obsidian5.TFile) || file.extension !== "md")
+        if (!(file instanceof import_obsidian6.TFile) || file.extension !== "md")
           return;
         const published = this.isPublished(file);
         menu.addItem((item) => {
-          item.setTitle(published ? "Unmark as publish" : "Mark as publish").setIcon(published ? "bookmark" : "bookmark-plus").onClick(() => this.togglePublish(file));
+          item.setTitle(published ? "Unmark as publish" : "Mark as publish").setIcon(published ? "bookmark" : "bookmark-plus").onClick(() => {
+            if (published) {
+              this.togglePublish(file);
+            } else {
+              new PublishModal(this.app, this, file).open();
+            }
+          });
         });
       })
     );
@@ -490,7 +676,7 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
-        if (file instanceof import_obsidian5.TFile) {
+        if (file instanceof import_obsidian6.TFile) {
           this.debouncedAutoSync(file);
         }
       })
@@ -514,7 +700,7 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
     await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
       frontmatter["publish"] = next;
     });
-    new import_obsidian5.Notice(`Marked as ${next ? "publish" : "private"}: ${file.basename}`);
+    new import_obsidian6.Notice(`Marked as ${next ? "publish" : "private"}: ${file.basename}`);
     if (next && this.settings.autoSync) {
       this.syncSingleFile(file);
     }
@@ -542,7 +728,7 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
   async syncSingleFile(file) {
     const blogPath = this.settings.blogFolderPath.trim();
     if (!blogPath) {
-      new import_obsidian5.Notice("Blog folder path is not configured. Check plugin settings.");
+      new import_obsidian6.Notice("Blog folder path is not configured. Check plugin settings.");
       return;
     }
     try {
@@ -557,19 +743,19 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
         fs3.mkdirSync(targetDir, { recursive: true });
       }
       fs3.writeFileSync(targetPath, content, "utf-8");
-      new import_obsidian5.Notice(`Synced to blog: ${file.path}`);
+      new import_obsidian6.Notice(`Synced to blog: ${file.path}`);
       if (this.settings.autoDeploy)
         this.resetDeployTimer();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      new import_obsidian5.Notice(`Sync failed: ${file.basename}. ${msg}`);
+      new import_obsidian6.Notice(`Sync failed: ${file.basename}. ${msg}`);
       console.error("PublishToBlog sync error:", e);
     }
   }
   async syncAllPublished() {
     const blogPath = this.settings.blogFolderPath.trim();
     if (!blogPath) {
-      new import_obsidian5.Notice("Blog folder path is not configured. Check plugin settings.");
+      new import_obsidian6.Notice("Blog folder path is not configured. Check plugin settings.");
       return;
     }
     const files = this.app.vault.getMarkdownFiles();
@@ -585,7 +771,7 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
         }
       }
     }
-    new import_obsidian5.Notice(`Sync complete: ${synced} synced${errors > 0 ? `, ${errors} errors` : ""}`);
+    new import_obsidian6.Notice(`Sync complete: ${synced} synced${errors > 0 ? `, ${errors} errors` : ""}`);
   }
   resetDeployTimer() {
     if (this.deployTimer)
@@ -603,23 +789,23 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
     const hexoRoot = this.settings.hexoRootPath.trim();
     const cmd = this.settings.deployCommand.trim();
     if (!hexoRoot || !cmd) {
-      new import_obsidian5.Notice("Hexo root path or deploy command not configured. Check plugin settings.");
+      new import_obsidian6.Notice("Hexo root path or deploy command not configured. Check plugin settings.");
       return;
     }
     if (!fs3.existsSync(hexoRoot)) {
-      new import_obsidian5.Notice(`Hexo root path does not exist: ${hexoRoot}`);
+      new import_obsidian6.Notice(`Hexo root path does not exist: ${hexoRoot}`);
       return;
     }
     this.isDeploying = true;
-    new import_obsidian5.Notice(`Deploy started: ${cmd}`);
+    new import_obsidian6.Notice(`Deploy started: ${cmd}`);
     (0, import_child_process.exec)(cmd, { cwd: hexoRoot }, (error, stdout, stderr) => {
       this.isDeploying = false;
       if (error) {
-        new import_obsidian5.Notice(`Deploy failed: ${error.message}`);
+        new import_obsidian6.Notice(`Deploy failed: ${error.message}`);
         console.error("PublishToBlog deploy error stdout:", stdout);
         console.error("PublishToBlog deploy error stderr:", stderr);
       } else {
-        new import_obsidian5.Notice("Deploy completed successfully!");
+        new import_obsidian6.Notice("Deploy completed successfully!");
         if (stdout)
           console.log("PublishToBlog deploy stdout:", stdout);
       }
@@ -643,7 +829,7 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
       return;
     try {
       fs3.unlinkSync(targetPath);
-      new import_obsidian5.Notice(`Removed from blog: ${file.path}`);
+      new import_obsidian6.Notice(`Removed from blog: ${file.path}`);
       let dir = path2.dirname(targetPath);
       while (dir !== blogPath.replace(/[/\\]$/, "")) {
         try {
@@ -660,7 +846,7 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      new import_obsidian5.Notice(`Failed to remove from blog: ${file.basename}. ${msg}`);
+      new import_obsidian6.Notice(`Failed to remove from blog: ${file.basename}. ${msg}`);
     }
   }
   async activateDashboard() {

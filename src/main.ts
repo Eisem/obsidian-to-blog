@@ -3,6 +3,7 @@ import { Notice, Plugin, TFile } from "obsidian";
 import { DEFAULT_SETTINGS, PublishSettingTab, type PluginSettings } from "./settings";
 import { DashboardView, VIEW_TYPE_DASHBOARD } from "./dashboard";
 import { MetadataModal } from "./metadata-modal";
+import { PublishModal } from "./publish-modal";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -100,7 +101,13 @@ export default class PublishToBlogPlugin extends Plugin {
           item
             .setTitle(published ? "Unmark as publish" : "Mark as publish")
             .setIcon(published ? "bookmark" : "bookmark-plus")
-            .onClick(() => this.togglePublish(file));
+            .onClick(() => {
+              if (published) {
+                this.togglePublish(file);
+              } else {
+                new PublishModal(this.app, this, file).open();
+              }
+            });
         });
       })
     );
