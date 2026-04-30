@@ -518,6 +518,9 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
     if (next && this.settings.autoSync) {
       this.syncSingleFile(file);
     }
+    if (!next) {
+      this.deleteFromBlog(file);
+    }
   }
   debouncedAutoSync(file) {
     if (!this.settings.autoSync)
@@ -626,6 +629,38 @@ var PublishToBlogPlugin = class extends import_obsidian5.Plugin {
     if (this.deployTimer) {
       clearTimeout(this.deployTimer);
       this.deployTimer = null;
+    }
+  }
+  deleteFromBlog(file) {
+    const blogPath = this.settings.blogFolderPath.trim();
+    if (!blogPath)
+      return;
+    const targetPath = path2.join(
+      blogPath.replace(/[/\\]$/, ""),
+      file.path
+    );
+    if (!fs3.existsSync(targetPath))
+      return;
+    try {
+      fs3.unlinkSync(targetPath);
+      new import_obsidian5.Notice(`Removed from blog: ${file.path}`);
+      let dir = path2.dirname(targetPath);
+      while (dir !== blogPath.replace(/[/\\]$/, "")) {
+        try {
+          const remaining = fs3.readdirSync(dir);
+          if (remaining.length === 0) {
+            fs3.rmdirSync(dir);
+            dir = path2.dirname(dir);
+          } else {
+            break;
+          }
+        } catch (e) {
+          break;
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      new import_obsidian5.Notice(`Failed to remove from blog: ${file.basename}. ${msg}`);
     }
   }
   async activateDashboard() {

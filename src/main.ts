@@ -144,6 +144,9 @@ export default class PublishToBlogPlugin extends Plugin {
     if (next && this.settings.autoSync) {
       this.syncSingleFile(file);
     }
+    if (!next) {
+      this.deleteFromBlog(file);
+    }
   }
 
   private debouncedAutoSync(file: TFile) {
@@ -264,6 +267,41 @@ export default class PublishToBlogPlugin extends Plugin {
     if (this.deployTimer) {
       clearTimeout(this.deployTimer);
       this.deployTimer = null;
+    }
+  }
+
+  deleteFromBlog(file: TFile) {
+    const blogPath = this.settings.blogFolderPath.trim();
+    if (!blogPath) return;
+
+    const targetPath = path.join(
+      blogPath.replace(/[/\\]$/, ""),
+      file.path
+    );
+
+    if (!fs.existsSync(targetPath)) return;
+
+    try {
+      fs.unlinkSync(targetPath);
+      new Notice(`Removed from blog: ${file.path}`);
+
+      let dir = path.dirname(targetPath);
+      while (dir !== blogPath.replace(/[/\\]$/, "")) {
+        try {
+          const remaining = fs.readdirSync(dir);
+          if (remaining.length === 0) {
+            fs.rmdirSync(dir);
+            dir = path.dirname(dir);
+          } else {
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      new Notice(`Failed to remove from blog: ${file.basename}. ${msg}`);
     }
   }
 
